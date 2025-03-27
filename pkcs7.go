@@ -22,7 +22,7 @@ type PKCS7 struct {
 	Content      []byte
 	Certificates []*x509.Certificate
 	CRLs         []pkix.CertificateList
-	Signers      []signerInfo
+	Signers      []SignerInfo
 	raw          interface{}
 }
 

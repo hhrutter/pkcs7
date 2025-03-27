@@ -1,6 +1,7 @@
 package pkcs7
 
 import (
+	"crypto"
 	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -54,9 +55,75 @@ func (p7 *PKCS7) VerifyWithChainAtTime(truststore *x509.CertPool, currentTime ti
 	return nil
 }
 
-func verifySignatureAtTime(p7 *PKCS7, signer signerInfo, truststore *x509.CertPool, currentTime time.Time) (err error) {
+func VerifyMessageDigestDetached(signer SignerInfo, signedData []byte) error {
+	// Confirm that the signature corresponds to the expected message digest.
+	// Ensure original content was not modified.
+
+	hash, err := getHashForOID(signer.DigestAlgorithm.Algorithm)
+	if err != nil {
+		return err
+	}
+
+	var digest []byte
+
+	if err := unmarshalAttribute(signer.AuthenticatedAttributes, OIDAttributeMessageDigest, &digest); err != nil {
+		return err
+	}
+
+	h := hash.New()
+	h.Write(signedData)
+	computed := h.Sum(nil)
+
+	if subtle.ConstantTimeCompare(digest, computed) != 1 {
+		return &MessageDigestMismatchError{
+			ExpectedDigest: digest,
+			ActualDigest:   computed,
+		}
+	}
+
+	return nil
+}
+
+func VerifyMessageDigestEmbedded(digest, signedData []byte) error {
+	// Confirm that the signature corresponds to the expected message digest.
+	// Ensure original content was not modified.
+
+	h := crypto.SHA1.New()
+	h.Write(signedData)
+	computed := h.Sum(nil)
+
+	if subtle.ConstantTimeCompare(digest, computed) != 1 {
+		return &MessageDigestMismatchError{
+			ExpectedDigest: digest,
+			ActualDigest:   computed,
+		}
+	}
+
+	return nil
+}
+
+func CheckSignature(cert *x509.Certificate, signer SignerInfo, content []byte) error {
+	// Decrypt the signature to verify that the signer actually signed this data.
+
+	sigalg, err := getSignatureAlgorithm(signer.DigestEncryptionAlgorithm, signer.DigestAlgorithm)
+	if err != nil {
+		return err
+	}
+
+	signedData := content
+	if len(signedData) == 0 {
+		signedData, err = marshalAttributes(signer.AuthenticatedAttributes)
+		if err != nil {
+			return err
+		}
+	}
+
+	return cert.CheckSignature(sigalg, signedData, signer.EncryptedDigest)
+}
+
+func verifySignatureAtTime(p7 *PKCS7, signer SignerInfo, truststore *x509.CertPool, currentTime time.Time) (err error) {
 	signedData := p7.Content
-	ee := getCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
+	ee := GetCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
 	if ee == nil {
 		return errors.New("pkcs7: No certificate for signer")
 	}
@@ -99,7 +166,7 @@ func verifySignatureAtTime(p7 *PKCS7, signer signerInfo, truststore *x509.CertPo
 		}
 	}
 	if truststore != nil {
-		_, err = verifyCertChain(ee, p7.Certificates, truststore, currentTime)
+		_, err = VerifyCertChain(ee, p7.Certificates, truststore, currentTime)
 		if err != nil {
 			return err
 		}
@@ -111,9 +178,9 @@ func verifySignatureAtTime(p7 *PKCS7, signer signerInfo, truststore *x509.CertPo
 	return ee.CheckSignature(sigalg, signedData, signer.EncryptedDigest)
 }
 
-func verifySignature(p7 *PKCS7, signer signerInfo, truststore *x509.CertPool) (err error) {
+func verifySignature(p7 *PKCS7, signer SignerInfo, truststore *x509.CertPool) (err error) {
 	signedData := p7.Content
-	ee := getCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
+	ee := GetCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
 	if ee == nil {
 		return errors.New("pkcs7: No certificate for signer")
 	}
@@ -154,7 +221,7 @@ func verifySignature(p7 *PKCS7, signer signerInfo, truststore *x509.CertPool) (e
 		}
 	}
 	if truststore != nil {
-		_, err = verifyCertChain(ee, p7.Certificates, truststore, signingTime)
+		_, err = VerifyCertChain(ee, p7.Certificates, truststore, signingTime)
 		if err != nil {
 			return err
 		}
@@ -173,7 +240,7 @@ func (p7 *PKCS7) GetOnlySigner() *x509.Certificate {
 		return nil
 	}
 	signer := p7.Signers[0]
-	return getCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
+	return GetCertFromCertsByIssuerAndSerial(p7.Certificates, signer.IssuerAndSerialNumber)
 }
 
 // UnmarshalSignedAttribute decodes a single attribute from the signer info
@@ -233,7 +300,7 @@ func parseSignedData(data []byte) (*PKCS7, error) {
 //
 // When verifying chains that may have expired, currentTime can be set to a past date
 // to allow the verification to pass. If unset, currentTime is set to the current UTC time.
-func verifyCertChain(ee *x509.Certificate, certs []*x509.Certificate, truststore *x509.CertPool, currentTime time.Time) (chains [][]*x509.Certificate, err error) {
+func VerifyCertChain(ee *x509.Certificate, certs []*x509.Certificate, truststore *x509.CertPool, currentTime time.Time) (chains [][]*x509.Certificate, err error) {
 	intermediates := x509.NewCertPool()
 	for _, intermediate := range certs {
 		intermediates.AddCert(intermediate)
@@ -244,11 +311,7 @@ func verifyCertChain(ee *x509.Certificate, certs []*x509.Certificate, truststore
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 		CurrentTime:   currentTime,
 	}
-	chains, err = ee.Verify(verifyOptions)
-	if err != nil {
-		return chains, fmt.Errorf("pkcs7: failed to verify certificate chain: %v", err)
-	}
-	return
+	return ee.Verify(verifyOptions)
 }
 
 // MessageDigestMismatchError is returned when the signer data digest does not
@@ -323,7 +386,7 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 	}
 }
 
-func getCertFromCertsByIssuerAndSerial(certs []*x509.Certificate, ias issuerAndSerial) *x509.Certificate {
+func GetCertFromCertsByIssuerAndSerial(certs []*x509.Certificate, ias issuerAndSerial) *x509.Certificate {
 	for _, cert := range certs {
 		if isCertMatchForIssuerAndSerial(cert, ias) {
 			return cert
