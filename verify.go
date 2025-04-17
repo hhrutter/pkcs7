@@ -338,8 +338,7 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 	case digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSA),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA1),
 		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA256),
-		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA384),
-		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA512):
+		digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSASHA384):
 		switch {
 		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA1):
 			return x509.SHA1WithRSA, nil
@@ -349,6 +348,18 @@ func getSignatureAlgorithm(digestEncryption, digest pkix.AlgorithmIdentifier) (x
 			return x509.SHA384WithRSA, nil
 		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512):
 			return x509.SHA512WithRSA, nil
+		default:
+			return -1, fmt.Errorf("pkcs7: unsupported digest %q for encryption algorithm %q",
+				digest.Algorithm.String(), digestEncryption.Algorithm.String())
+		}
+	case digestEncryption.Algorithm.Equal(OIDEncryptionAlgorithmRSAPSS):
+		switch {
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA256):
+			return x509.SHA256WithRSAPSS, nil
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA384):
+			return x509.SHA384WithRSAPSS, nil
+		case digest.Algorithm.Equal(OIDDigestAlgorithmSHA512):
+			return x509.SHA512WithRSAPSS, nil
 		default:
 			return -1, fmt.Errorf("pkcs7: unsupported digest %q for encryption algorithm %q",
 				digest.Algorithm.String(), digestEncryption.Algorithm.String())
