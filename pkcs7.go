@@ -20,6 +20,7 @@ import (
 // PKCS7 Represents a PKCS7 structure
 type PKCS7 struct {
 	Content      []byte
+	ContentType  asn1.ObjectIdentifier
 	Certificates []*x509.Certificate
 	CRLs         []pkix.CertificateList
 	Signers      []SignerInfo

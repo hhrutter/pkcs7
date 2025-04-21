@@ -102,6 +102,29 @@ func VerifyMessageDigestEmbedded(digest, signedData []byte) error {
 	return nil
 }
 
+func VerifyMessageDigestTSToken(oidHashAlg asn1.ObjectIdentifier, digest, signedData []byte) error {
+	// Confirm that the signature corresponds to the expected message digest.
+	// Ensure original content was not modified.
+
+	hash, err := getHashForOID(oidHashAlg)
+	if err != nil {
+		return err
+	}
+
+	h := hash.New()
+	h.Write(signedData)
+	computed := h.Sum(nil)
+
+	if subtle.ConstantTimeCompare(digest, computed) != 1 {
+		return &MessageDigestMismatchError{
+			ExpectedDigest: digest,
+			ActualDigest:   computed,
+		}
+	}
+
+	return nil
+}
+
 func CheckSignature(cert *x509.Certificate, signer SignerInfo, content []byte) error {
 	// Decrypt the signature to verify that the signer actually signed this data.
 
@@ -289,6 +312,7 @@ func parseSignedData(data []byte) (*PKCS7, error) {
 	}
 	return &PKCS7{
 		Content:      content,
+		ContentType:  sd.ContentInfo.ContentType,
 		Certificates: certs,
 		CRLs:         sd.CRLs,
 		Signers:      sd.SignerInfos,
