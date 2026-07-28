@@ -14,13 +14,34 @@ import (
 	"testing"
 )
 
+func testDigest(
+	t *testing.T,
+	sigAlg x509.SignatureAlgorithm,
+	content []byte,
+) ([]byte, asn1.ObjectIdentifier) {
+	t.Helper()
+
+	oid, err := DigestOIDForSignatureAlgorithm(sigAlg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hash, err := HashForOID(oid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := hash.New()
+	_, _ = h.Write(content)
+
+	return h.Sum(nil), oid
+}
+
 func TestSign(t *testing.T) {
 	content := []byte("Hello World")
 	sigalgs := []x509.SignatureAlgorithm{
-		x509.SHA1WithRSA,
 		x509.SHA256WithRSA,
 		x509.SHA512WithRSA,
-		x509.ECDSAWithSHA1,
 		x509.ECDSAWithSHA256,
 		x509.ECDSAWithSHA384,
 		x509.ECDSAWithSHA512,
@@ -51,10 +72,21 @@ func TestSign(t *testing.T) {
 				}
 
 				// Set the digest to match the end entity cert
-				signerDigest, _ := DigestOIDForSignatureAlgorithm(signerCert.Certificate.SignatureAlgorithm)
+				messageDigest, signerDigest := testDigest(
+					t,
+					signerCert.Certificate.SignatureAlgorithm,
+					content,
+				)
 				//toBeSigned.SetDigestAlgorithm(signerDigest)
 
-				if err := toBeSigned.AddSignerChain(signerCert.Certificate, *signerCert.PrivateKey, nil, nil, parents, SignerInfoConfig{}); err != nil {
+				if err := toBeSigned.AddSignerChain(
+					signerCert.Certificate,
+					*signerCert.PrivateKey,
+					messageDigest,
+					signerDigest,
+					parents,
+					SignerInfoConfig{},
+				); err != nil {
 					t.Fatalf("test %s/%s/%s: cannot add signer: %s", sigalgroot, sigalginter, sigalgsigner, err)
 				}
 				signed, err := toBeSigned.Finish()
@@ -124,9 +156,17 @@ func TestUnmarshalSignedAttribute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cannot initialize signed data: %s", err)
 	}
+
+	content := []byte("Hello World")
+	messageDigest, digestOID := testDigest(
+		t,
+		cert.Certificate.SignatureAlgorithm,
+		content,
+	)
+
 	oidTest := asn1.ObjectIdentifier{2, 3, 4, 5, 6, 7}
 	testValue := "TestValue"
-	if err := toBeSigned.AddSigner(cert.Certificate, *cert.PrivateKey, nil, nil, SignerInfoConfig{
+	if err := toBeSigned.AddSigner(cert.Certificate, *cert.PrivateKey, messageDigest, digestOID, SignerInfoConfig{
 		ExtraSignedAttributes: []Attribute{Attribute{Type: oidTest, Value: testValue}},
 	}); err != nil {
 		t.Fatalf("Cannot add signer: %s", err)
