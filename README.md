@@ -1,3 +1,13 @@
+# Deprecated
+
+This module is no longer maintained.
+
+A PDF-signature-focused PKCS#7/CMS implementation is maintained as part of
+[pdfcpu](https://github.com/pdfcpu/pdfcpu/tree/master/pkg/pdfcpu/pkcs7).
+
+The pdfcpu package is not a drop-in replacement: its API and supported CMS
+features differ. Existing releases remain available for reproducible builds.
+
 # pkcs7
 
 [![GoDoc](https://godoc.org/go.mozilla.org/pkcs7?status.svg)](https://godoc.org/go.mozilla.org/pkcs7)
